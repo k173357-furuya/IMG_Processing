@@ -1,6 +1,10 @@
 import numpy as np
 from scipy import linalg
 import scipy as sp
+import matplotlib.pyplot as plt
+import math
+from sympy import *
+import sympy
 
 def array_info(x):
     print("Array shape:", x.shape)
@@ -215,8 +219,8 @@ def estimateFNS(data):
         #myuNew = np.matrix(v[:, np.argmin(sorted_lamdas)]).T
         #index = [i for i, v in enumerate(sorted_lamdas) if v == min(sorted_lamdas)][0]
         #print(v[:, index])
-        index = [i for i, v in enumerate(lamdas) if v == min(lamdas)][0]
-        myuNew=np.matrix(v[:, index]).T
+        #index = [i for i, v in enumerate(lamdas) if v == min(lamdas)][0]
+        #myuNew=np.matrix(v[:, index]).T
         #print('lamda:',lamdas)
         #print('index:',np.argmin(np.absolute(lamdas)))
         #print('lamda:',lamdas)
@@ -226,7 +230,7 @@ def estimateFNS(data):
         #if loop==0:
             #myuNew = np.matrix(v[:, np.argmin(np.absolute(lamdas))]).T
         #myuNew = np.matrix(v[:, np.argmin(np.absolute(lamdas))])
-        #myuNew = np.matrix(v[:, np.argmin(np.absolute(lamdas))]).T
+        myuNew = np.matrix(v[:, np.argmin(np.absolute(lamdas))]).T
         #myuNew = np.matrix(v[:, np.argmin(lamdas)]).T
         #print('index',index)
         #print('v',v)
@@ -240,7 +244,7 @@ def estimateFNS(data):
         #term = np.linalg.norm(np.absolute(myu) - np.absolute(myuOrg))
         #print('term:',term)
         #print('term:',term)
-        if term < 10e-6 or loop > 100:
+        if term < 10e-6 or loop > 500:
             if loop > 100:
                 #print(myu)
                 print('loop > 100')
@@ -348,16 +352,50 @@ def KCR_lower_bound(data,stdv,data_num,myu):
     #Dkcr = ( stdv/np.sqrt(data.shape[0]) )*np.sqrt(diag_M)
     return Dkcr[0][0]
 
+def plotData(myuLSM,myuFNS,trueVal):
+    import sys
+    from Ellipse import generateVecFromEllipse
+    from Ellipse import getEllipseProperty
+
+    trueVal = np.matrix(trueVal).T
+    myu = np.matrix(np.zeros(6)).T
+    fig, ax = plt.subplots(ncols = 1, figsize=(10, 10))
+    label_text = ''
+
+    for i in range(3):
+        if(i==0):
+            myu = myuLSM
+            label_text = 'LSM'
+        if(i==1):
+            myu = myuFNS
+            label_text = 'FNS'
+        if(i==2):
+            myu = trueVal
+            label_text = 'TrueAns'
+
+        valid, axis, centerEst, Rest = getEllipseProperty(myu[0,0], myu[1,0], myu[2,0], myu[3,0], myu[4,0], myu[5,0])
+        dataEst = generateVecFromEllipse(axis, centerEst, Rest)
+        ax.plot(dataEst[:, 0], dataEst[:, 1])
+    ax.legend(['LSM','FNS','TrueAns'])
+
+    plt.savefig('figure.png')
+
+
+
+    return 0
+
 if __name__ == "__main__":
+
+
     #read data of points including error value
     data = np.loadtxt('points.dat',comments='!')
     #read data of true value
     trueAns = np.loadtxt('true_param.dat')
     #init value
-    trial_num = 100
+    trial_num = 1
 
-    f0=600.0
-    stdv = 0.4 #standard Error
+    f0=600
+    stdv = 0.2 #standard Error
     LSM_results = []
     FNS_results = []
     myu = np.matrix([1.0,1.0,1.0,1.0,1.0,1.0]).T
@@ -384,6 +422,11 @@ if __name__ == "__main__":
     #calculate FNS myu
     #calc Error of results
     #print('FMS_resutls',FNS_results)
+    plotData(myuLSM,myuFNS,trueAns)
+
+    #plotData(dataEst,dataEst)
+
+
     LSM_dev = calcDeviation(LSM_results,np.matrix(trueAns).T)
     FNS_dev = calcDeviation(FNS_results,np.matrix(trueAns).T)
     LSM_err = calcRMSErr(LSM_results,np.matrix(trueAns).T)
