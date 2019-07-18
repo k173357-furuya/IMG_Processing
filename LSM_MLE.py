@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import math
 from sympy import *
 import sympy
+import scipy.sparse.linalg
 
 def array_info(x):
     print("Array shape:", x.shape)
@@ -56,8 +57,10 @@ def createLMat(data, weight, myu, covs):
   L = np.matrix(np.zeros((6, 6)))
   for i in range(dataMod.shape[0]):
     coeff = weight[i, 0]**2 * (dataMod[i, :] * myu)**2
+    #array_info(coeff)
     #L = L + coeff[0, 0] * createCovMat(data[i,:])
     L = L + coeff[0, 0] * covs[i]
+    #array_info(coeff[0, 0] * covs[i])
     #print('weight:',weight[i, 0])
     #print('weight**2:',weight[i, 0]**2)
     #print('(dataMod[i, :] * myu)**2:',(dataMod[i, :] * myu)**2)
@@ -131,46 +134,6 @@ def estimateLSM(data):
         myu=-myu
     return myu
 
-#重み付き繰り返し法による推定　→　必要ない
-def estimateTaubin(data,weight):
-    myu = np.matrix([1.0,1.0,1.0,1.0,1.0,1.0]).T
-    myuOrg = myu
-    myu = estimateLSM(data,weight)
-    loop = 0
-    while True:
-        MMat = createMMat(data,weight)
-        #CovMat = createCovMat(data_with_f0)
-        #calculate EigenValue and EigenVector of minimum EigenValue
-        #固有値を計算し, 最小固有値に対応する固有ベクトルを求める
-        #この最小固有値がMを最小にするベクトル → 最小二乗法の解
-        la,v = np.linalg.eig(MMat)
-
-        #index = np.where(la==min(la))[0][0]
-        if loop != 0:
-            myuOrg = myu
-        if loop == 0:
-            myu = estimateLSM(data,weight)
-        else:
-            myu = v[:, np.argmin(np.absolute(la))]
-        #print(myu)
-        #print(np.matrix(v[:, index]))
-        #myu = np.matrix(v[:, index])
-        #if myu[0,0]<0:
-            #myu=-myu
-
-        #calculate weight
-        weight = calc_Weight_LSM(weight,data,myu,data.shape[0])
-
-        term = np.linalg.norm(myu - myuOrg)
-        #if loop==0:
-            #print(np.linalg.norm(myu - np.matrix(trueAns).T))
-
-        #term = np.linalg.norm(myu - np.matrix(trueAns).T)
-        if term < 10e-13 or loop > 300:
-            break
-        loop = loop + 1
-    return myu
-
 def estimateFNS(data):
     # Add normalized term.
     dataMod = data
@@ -184,7 +147,6 @@ def estimateFNS(data):
     # Weight matrix.
     weight = np.ones(dataMod.shape[0])
     weight = np.matrix(weight).T
-
     #myu = estimateLSM(data)
     # Covars
     covs = []
@@ -193,7 +155,6 @@ def estimateFNS(data):
         covs.append(createCovMat(data_row))
         #print(covs[i])
     #myu = estimateLSM(dataMod)
-
     loop = 0
     while True:
         # M Matrix
@@ -204,11 +165,12 @@ def estimateFNS(data):
         #print('dataMod',dataMod)
         #print('weight',weight)
         #lamdas, v = np.linalg.eigh((M - L))
-        lamdas, v = sp.linalg.eigh((M - L))
-        #print(lamdas)
-        #print('M-L',M-L)
-        #print(lamdas)
+        lamdas, v = sp.linalg.eigh((M - L),turbo=False)
+        #print('lamdas:',lamdas)
+        #print('v:',v)
+
         myuOrg = myu
+
         #myuNew = np.matrix(v[:, np.argmin(np.absolute(lamdas))]).T
         #print(la)
         #la,v = np.linalg.eigvals(MMat)
@@ -219,8 +181,8 @@ def estimateFNS(data):
         #myuNew = np.matrix(v[:, np.argmin(sorted_lamdas)]).T
         #index = [i for i, v in enumerate(sorted_lamdas) if v == min(sorted_lamdas)][0]
         #print(v[:, index])
-        #index = [i for i, v in enumerate(lamdas) if v == min(lamdas)][0]
-        #myuNew=np.matrix(v[:, index]).T
+        index = [i for i, v in enumerate(lamdas) if v == min(lamdas)][0]
+        myuNew=np.matrix(v[:, index]).T
         #print('lamda:',lamdas)
         #print('index:',np.argmin(np.absolute(lamdas)))
         #print('lamda:',lamdas)
@@ -230,7 +192,10 @@ def estimateFNS(data):
         #if loop==0:
             #myuNew = np.matrix(v[:, np.argmin(np.absolute(lamdas))]).T
         #myuNew = np.matrix(v[:, np.argmin(np.absolute(lamdas))])
-        myuNew = np.matrix(v[:, np.argmin(np.absolute(lamdas))]).T
+        #myuNew = np.matrix(v[:, np.argmin(np.absolute(lamdas))]).T
+
+        #print('resutl:',((M-L)-np.argmin(np.absolute(lamdas)*np.matrix(np.ones((6,6)))))*myuNew)
+        #print('myuNew',myuNew)
         #myuNew = np.matrix(v[:, np.argmin(lamdas)]).T
         #print('index',index)
         #print('v',v)
@@ -238,17 +203,21 @@ def estimateFNS(data):
         #print('min(v)',np.min(lamdas))
         if myuNew.sum()<0:
             myuNew=-myuNew
+
         #myu = (myuNew + myuOrg) / 2
         myu = myuNew
-        term = np.linalg.norm(myu - myuOrg)
-        #term = np.linalg.norm(np.absolute(myu) - np.absolute(myuOrg))
+
+        #term = np.linalg.norm(myu - myuOrg)
+
+        term = np.linalg.norm(np.absolute(myu) - np.absolute(myuOrg))
         #print('term:',term)
         #print('term:',term)
-        if term < 10e-6 or loop > 500:
+        if term < 10e-6 or loop > 100:
             if loop > 100:
-                #print(myu)
                 print('loop > 100')
             break
+
+
         #weight = calc_Weight_LSM(weight,data,myu,data.shape[0])
         for i in range(dataMod.shape[0]):
             alp = myu.T * covs[i] * myu
@@ -256,11 +225,31 @@ def estimateFNS(data):
 
         loop = loop + 1
         #array_info(weight)
+        calcFunctionJ(dataMod,covs,myu)
     if myu.sum()<0:
         myu = -myu
+
     #if myu[0,0]<0:
-        #myu=-myu
     return myu
+
+def calcFunctionJ(data,covs,myu):
+    dataMod = np.matrix(np.zeros((data.shape[0], 6)))
+    for i in range(data.shape[0]):
+       dataMod[i, 0] = data[i, 0]**2
+       dataMod[i, 1] = data[i, 0] * data[i, 1]
+       dataMod[i, 2] = data[i, 1]**2
+       dataMod[i, 3] = data[i, 0] * data[i, 2]
+       dataMod[i, 4] = data[i, 1] * data[i, 2]
+       dataMod[i, 5] = data[i, 2]**2
+
+    #calc J
+    J=0.0
+    for i in range(data.shape[0]):
+        alp = myu.T * covs[i] * myu
+        J = J + (myu.T*dataMod[i, :].T)**2 /alp
+    #print('J:',J)
+    #print('myu',myu)
+    return J
 
 def calcDeviation(results,true_val):
     sum_theta = np.matrix(np.zeros((6,1)))
@@ -352,7 +341,7 @@ def KCR_lower_bound(data,stdv,data_num,myu):
     #Dkcr = ( stdv/np.sqrt(data.shape[0]) )*np.sqrt(diag_M)
     return Dkcr[0][0]
 
-def plotData(myuLSM,myuFNS,trueVal):
+def plotData(myuLSM,myuFNS,trueVal,data):
     import sys
     from Ellipse import generateVecFromEllipse
     from Ellipse import getEllipseProperty
@@ -376,63 +365,45 @@ def plotData(myuLSM,myuFNS,trueVal):
         valid, axis, centerEst, Rest = getEllipseProperty(myu[0,0], myu[1,0], myu[2,0], myu[3,0], myu[4,0], myu[5,0])
         dataEst = generateVecFromEllipse(axis, centerEst, Rest)
         ax.plot(dataEst[:, 0], dataEst[:, 1])
+    ax.scatter(data[:,0]/600,data[:,1]/600)
     ax.legend(['LSM','FNS','TrueAns'])
 
-    plt.savefig('figure.png')
-
-
-
+    plt.savefig('Ellipse.png')
     return 0
 
-if __name__ == "__main__":
-
-
-    #read data of points including error value
-    data = np.loadtxt('points.dat',comments='!')
-    #read data of true value
-    trueAns = np.loadtxt('true_param.dat')
-    #init value
-    trial_num = 1
-
+def calcLSMandMSE(data,trialNum ,stdv_val,trueAns):
     f0=600
-    stdv = 0.2 #standard Error
+    stdv = stdv_val #standard Error
     LSM_results = []
     FNS_results = []
     myu = np.matrix([1.0,1.0,1.0,1.0,1.0,1.0]).T
     f_exp2 = np.matrix(np.full(data.shape[0],f0))
 
-    for i in range(trial_num):
+
+    for i in range(trialNum ):
         #show index
         print('loop :',i+1)
         #add Gaussian noise
         dataNoised = addGaussError(data, 0, stdv, 100)
-        #dataNoised = data
         #create M matrix
         data_with_f0 = np.concatenate((np.matrix(dataNoised),f_exp2.T),axis = 1)
         #calculate LSM
         myuLSM = estimateLSM(data_with_f0)
         #calculate FNS
         myuFNS = estimateFNS(data_with_f0)
+
         #make results list
         LSM_results.append(myuLSM)
         FNS_results.append(myuFNS)
-    #calculate Taubin
-    #myuTaubin = estimateTaubin(data_with_f0,weight)
-    #print(myuTaubin)
-    #calculate FNS myu
-    #calc Error of results
-    #print('FMS_resutls',FNS_results)
-    plotData(myuLSM,myuFNS,trueAns)
 
-    #plotData(dataEst,dataEst)
-
+    #Plot last answer figure of Ellipse
+    #plotData(myuLSM,myuFNS,trueAns,dataNoised)
 
     LSM_dev = calcDeviation(LSM_results,np.matrix(trueAns).T)
     FNS_dev = calcDeviation(FNS_results,np.matrix(trueAns).T)
     LSM_err = calcRMSErr(LSM_results,np.matrix(trueAns).T)
     FNS_err = calcRMSErr(FNS_results,np.matrix(trueAns).T)
-    #kcr = KCR_lower_bound(np.concatenate((np.matrix(trueAns).T,f_exp2.T),axis = 1),stdv,trial_num)
-    kcr = KCR_lower_bound(np.concatenate((np.matrix(data),f_exp2.T),axis = 1),stdv,trial_num,np.matrix(trueAns).T)
+    kcr = KCR_lower_bound(np.concatenate((np.matrix(data),f_exp2.T),axis = 1),stdv,trialNum ,np.matrix(trueAns).T)
     print('LSM_uの値',myuLSM)
     print('FNS_uの値',myuFNS)
     print('真値',np.matrix(trueAns).T)
@@ -444,3 +415,122 @@ if __name__ == "__main__":
     print('真値とLSM_uの偏差:',LSM_dev)
     print('真値とFNS_uの偏差:',FNS_dev)
     print('KCR誤差',kcr)
+
+    return LSM_dev ,FNS_dev,LSM_err,FNS_err,kcr
+
+def calcRepLSMandMSE():
+    #read data of points including error value
+    data = np.loadtxt('points.dat',comments='!')
+    #read data of true value
+    trueAns = np.loadtxt('true_param.dat')
+    #init value
+    trialNum = 1000
+    #List of standard deviation
+    stdvList = np.arange(0.0, 0.101, 0.005, dtype = 'float64')
+    #Make list of SD List and RMS list
+    LSM_dev_List = np.array(np.zeros(stdvList.shape))
+    MSE_dev_List = np.array(np.zeros(stdvList.shape))
+    LSM_err_List = np.array(np.zeros(stdvList.shape))
+    MSE_err_List = np.array(np.zeros(stdvList.shape))
+    KCR_List = np.array(np.zeros(stdvList.shape))
+
+    for i in range(stdvList.shape[0]):
+        LSM_dev_List[i],MSE_dev_List[i],LSM_err_List[i],MSE_err_List[i],KCR_List[i] = calcLSMandMSE(data,trialNum ,stdvList[i],trueAns)
+
+    #plot all results
+    plt.rcParams['font.family'] ='sans-serif'#使用するフォント
+    plt.rcParams['xtick.direction'] = 'in'#x軸の目盛線が内向き('in')か外向き('out')か双方向か('inout')
+    plt.rcParams['ytick.direction'] = 'in'#y軸の目盛線が内向き('in')か外向き('out')か双方向か('inout')
+    plt.rcParams['xtick.major.width'] = 1.0#x軸主目盛り線の線幅
+    plt.rcParams['ytick.major.width'] = 1.0#y軸主目盛り線の線幅
+    plt.rcParams['font.size'] = 8 #フォントの大きさ
+    plt.rcParams['axes.linewidth'] = 1.0# 軸の線幅edge linewidth。囲みの太さ
+    #plot deviation
+    plt.plot(stdvList,LSM_dev_List,label='LSM')
+    plt.plot(stdvList,MSE_dev_List,label='MSE')
+    plt.xlim([np.min(stdvList),np.max(stdvList)])
+    plt.ylim([0,plt.ylim()[1]])
+    plt.legend()
+    plt.savefig('deviation.png')
+    #plot RMS
+    plt.figure()
+    plt.plot(stdvList,LSM_err_List,label='LSM')
+    plt.plot(stdvList,MSE_err_List,label='MSE')
+    plt.plot(stdvList,KCR_List,linestyle="--",label='KCR Lower Bound')
+    plt.xlim([np.min(stdvList),np.max(stdvList)])
+    plt.ylim([0,plt.ylim()[1]])
+    #plt.xlabel("Standard deviation")
+    #plt.ylabel("Y-axis")
+    plt.legend()
+    plt.savefig('RMS.png')
+
+
+
+
+if __name__ == "__main__":
+
+    calcRepLSMandMSE()
+    #read data of points including error value
+    data = np.loadtxt('points.dat',comments='!')
+    #read data of true value
+    trueAns = np.loadtxt('true_param.dat')
+    #init value
+    trialNum  = 10
+
+    f0=600
+    stdv = 0.05 #standard Error
+    LSM_results = []
+    FNS_results = []
+    myu = np.matrix([1.0,1.0,1.0,1.0,1.0,1.0]).T
+    f_exp2 = np.matrix(np.full(data.shape[0],f0))
+
+
+    for i in range(trialNum ):
+        #show index
+        print('loop :',i+1)
+        #add Gaussian noise
+        dataNoised = addGaussError(data, 0, stdv, 100)
+        #create M matrix
+        data_with_f0 = np.concatenate((np.matrix(dataNoised),f_exp2.T),axis = 1)
+        #calculate LSM
+        myuLSM = estimateLSM(data_with_f0)
+        #calculate FNS
+        myuFNS = estimateFNS(data_with_f0)
+
+        #make results list
+        LSM_results.append(myuLSM)
+        FNS_results.append(myuFNS)
+    #calculate Taubin
+    #myuTaubin = estimateTaubin(data_with_f0,weight)
+    #print(myuTaubin)
+    #calculate FNS myu
+    #calc Error of results
+    #print('FMS_resutls',FNS_results)
+    plotData(myuLSM,myuFNS,trueAns,dataNoised)
+
+    #plotData(dataEst,dataEst)
+
+
+    LSM_dev = calcDeviation(LSM_results,np.matrix(trueAns).T)
+    FNS_dev = calcDeviation(FNS_results,np.matrix(trueAns).T)
+    LSM_err = calcRMSErr(LSM_results,np.matrix(trueAns).T)
+    FNS_err = calcRMSErr(FNS_results,np.matrix(trueAns).T)
+    #kcr = KCR_lower_bound(np.concatenate((np.matrix(trueAns).T,f_exp2.T),axis = 1),stdv,trialNum )
+    kcr = KCR_lower_bound(np.concatenate((np.matrix(data),f_exp2.T),axis = 1),stdv,trialNum ,np.matrix(trueAns).T)
+    print('LSM_uの値',myuLSM)
+    print('FNS_uの値',myuFNS)
+    print('真値',np.matrix(trueAns).T)
+    print('真値とLSM_uの誤差:',LSM_err)
+    #print(calcVectorError(myu,np.matrix(trueAns).T))
+    print(np.linalg.norm(myuLSM - np.matrix(trueAns).T))
+    print('真値とFNS_uの誤差:',FNS_err)
+    print(np.linalg.norm(myuFNS - np.matrix(trueAns).T))
+    print('真値とLSM_uの偏差:',LSM_dev)
+    print('真値とFNS_uの偏差:',FNS_dev)
+    print('KCR誤差',kcr)
+
+
+    #x = range(4, 4, 100)
+    #print('x',x)
+    #for i in x:
+        #i = i * 0.1
