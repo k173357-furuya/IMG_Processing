@@ -1,3 +1,10 @@
+#-------------------------------------------------------------------------------
+# @Name : LSM_MLE.py
+# @Abstract : Estimate Ellipse parameter from pixel position data by LSM and MLE
+# @Author : Koki Furuya
+# @Last edid : 2019/07/24
+# reference : 菅谷先生の論文 http://www.iim.cs.tut.ac.jp/~kanatani/papers/hyperellip.pdf
+#-------------------------------------------------------------------------------
 import numpy as np
 from scipy import linalg
 import scipy as sp
@@ -7,20 +14,22 @@ from sympy import *
 import sympy
 import scipy.sparse.linalg
 
+#show array infomation of vector or matrix
 def array_info(x):
     print("Array shape:", x.shape)
     print("Type of data:", x.dtype)
     print("Element of Array:\n",x,"\n")
 
 #add gausserror
+#正確な楕円上の位置(x,y)データ群に対して,標準偏差stdvの誤差を付与
 def addGaussError(data, avg, stdv, absmax):
   noise = np.random.normal(avg, stdv, data.shape)
-  #print(noise)
   noise = np.clip(noise, -(absmax + avg), absmax + avg)
   dataWError = data + noise
   return dataWError
 
-#create Matrix
+#create MMatrix
+#最小二乗法と最尤推定法(FNS)の双方で使うM行列の計算(reference参照)
 def createMMat(data, weight):
 
   dataMod = np.matrix(np.zeros((data.shape[0], 6)))
@@ -34,7 +43,7 @@ def createMMat(data, weight):
 
   M = np.zeros((6, 6))
   M = np.matrix(M)
-  #array_info(weight)
+
   for i in range(dataMod.shape[0]):
     dM = dataMod[i, :].T * dataMod[i, :]
     M = M + weight[i, 0] * dM
@@ -57,18 +66,11 @@ def createLMat(data, weight, myu, covs):
   L = np.matrix(np.zeros((6, 6)))
   for i in range(dataMod.shape[0]):
     coeff = weight[i, 0]**2 * (dataMod[i, :] * myu)**2
-    #array_info(coeff)
-    #L = L + coeff[0, 0] * createCovMat(data[i,:])
     L = L + coeff[0, 0] * covs[i]
-    #array_info(coeff[0, 0] * covs[i])
-    #print('weight:',weight[i, 0])
-    #print('weight**2:',weight[i, 0]**2)
-    #print('(dataMod[i, :] * myu)**2:',(dataMod[i, :] * myu)**2)
-    #print('coeff[0, 0] * covs[i]:',coeff[0, 0] * covs[i])
 
   return L / dataMod.shape[0]
 
-#
+#正規化共分散行列の計算
 def createCovMat(data):
 
     x = data[0, 0]
@@ -92,29 +94,6 @@ def createCovMat(data):
     #cov = cov
     return 4*cov
 
-#normalizetion of vector
-def array_normalize(v, axis=-1, order=2):
-    l2 = np.linalg.norm(v, ord = order, axis=axis, keepdims=True)
-    l2[l2==0] = 1
-    return v/l2
-
-def calcVectorError(Vct,trueVct):
-    sumerr = 0.0
-    for i in range(Vct.shape[0]):
-        sumerr = sumerr + np.sqrt((Vct[i,0]-trueVct[i,0])**2)
-    return sumerr
-
-def calc_Weight_LSM(weight,data,myu,row):
-    for i in range(data.shape[0]):
-        CovMat = createCovMat(data[i,:])
-        alp = myu.T * CovMat * myu
-        weight[i,0] = 1/(alp)
-        #Cov_myu = np.dot(CovMat,myu)
-        #weight[i,0] = 1/(np.dot(Cov_myu.T,myu))
-        #weight = np.matrix(np.full(row,weight_value)).T
-    #array_info(weight)
-    return weight
-
 #LSM(最小二乗法による計算)
 def estimateLSM(data):
     weight = np.matrix(np.full(data.shape[0],1.0)).T
@@ -134,123 +113,55 @@ def estimateLSM(data):
         myu=-myu
     return myu
 
+#FNS(最尤推定法による計算)
 def estimateFNS(data):
-    # Add normalized term.
     dataMod = data
-    #dataMod = np.concatenate((data, np.ones((data.shape[0], 1))), axis=1)
-
     # Param Vector
     myu = np.matrix(np.zeros(6)).T
     myuNew = myu
     myuOrg = myu
-
     # Weight matrix.
     weight = np.ones(dataMod.shape[0])
     weight = np.matrix(weight).T
-    #myu = estimateLSM(data)
     # Covars
     covs = []
     for i in range(dataMod.shape[0]):
         data_row = dataMod[i, :]
         covs.append(createCovMat(data_row))
-        #print(covs[i])
-    #myu = estimateLSM(dataMod)
+
     loop = 0
     while True:
         # M Matrix
         M = createMMat(dataMod, weight)
         L = createLMat(dataMod, weight, myu, covs)
-        #array_info(M)
-        #array_info(L)
-        #print('dataMod',dataMod)
-        #print('weight',weight)
-        #lamdas, v = np.linalg.eigh((M - L))
         lamdas, v = sp.linalg.eigh((M - L),turbo=False)
-        #print('lamdas:',lamdas)
-        #print('v:',v)
-
         myuOrg = myu
-
-        #myuNew = np.matrix(v[:, np.argmin(np.absolute(lamdas))]).T
-        #print(la)
-        #la,v = np.linalg.eigvals(MMat)
-        #index = np.where(lamdas==min(lamdas))[0][0]
-        #sorted_lamdas = sorted(lamdas,reverse=True)[:5]
-        #print(sorted_lamdas)
-        #print(sorted_lamdas)
-        #myuNew = np.matrix(v[:, np.argmin(sorted_lamdas)]).T
-        #index = [i for i, v in enumerate(sorted_lamdas) if v == min(sorted_lamdas)][0]
-        #print(v[:, index])
         index = [i for i, v in enumerate(lamdas) if v == min(lamdas)][0]
         myuNew=np.matrix(v[:, index]).T
-        #print('lamda:',lamdas)
-        #print('index:',np.argmin(np.absolute(lamdas)))
-        #print('lamda:',lamdas)
-        #print(v[:, index])
-
-        #print( (M-L)*myuNew - np.matrix(np.diag(lamdas))*myuNew )
-        #if loop==0:
-            #myuNew = np.matrix(v[:, np.argmin(np.absolute(lamdas))]).T
-        #myuNew = np.matrix(v[:, np.argmin(np.absolute(lamdas))])
-        #myuNew = np.matrix(v[:, np.argmin(np.absolute(lamdas))]).T
-
-        #print('resutl:',((M-L)-np.argmin(np.absolute(lamdas)*np.matrix(np.ones((6,6)))))*myuNew)
-        #print('myuNew',myuNew)
-        #myuNew = np.matrix(v[:, np.argmin(lamdas)]).T
-        #print('index',index)
-        #print('v',v)
-        #print('lamdas',lamdas)
-        #print('min(v)',np.min(lamdas))
         if myuNew.sum()<0:
             myuNew=-myuNew
 
-        #myu = (myuNew + myuOrg) / 2
         myu = myuNew
 
-        #term = np.linalg.norm(myu - myuOrg)
-
         term = np.linalg.norm(np.absolute(myu) - np.absolute(myuOrg))
-        #print('term:',term)
-        #print('term:',term)
         if term < 10e-6 or loop > 100:
             if loop > 100:
                 print('loop > 100')
             break
 
-
-        #weight = calc_Weight_LSM(weight,data,myu,data.shape[0])
+        #weightの更新
         for i in range(dataMod.shape[0]):
             alp = myu.T * covs[i] * myu
             weight[i, 0] = 1 / (alp)
 
         loop = loop + 1
         #array_info(weight)
-        calcFunctionJ(dataMod,covs,myu)
     if myu.sum()<0:
         myu = -myu
 
-    #if myu[0,0]<0:
     return myu
 
-def calcFunctionJ(data,covs,myu):
-    dataMod = np.matrix(np.zeros((data.shape[0], 6)))
-    for i in range(data.shape[0]):
-       dataMod[i, 0] = data[i, 0]**2
-       dataMod[i, 1] = data[i, 0] * data[i, 1]
-       dataMod[i, 2] = data[i, 1]**2
-       dataMod[i, 3] = data[i, 0] * data[i, 2]
-       dataMod[i, 4] = data[i, 1] * data[i, 2]
-       dataMod[i, 5] = data[i, 2]**2
-
-    #calc J
-    J=0.0
-    for i in range(data.shape[0]):
-        alp = myu.T * covs[i] * myu
-        J = J + (myu.T*dataMod[i, :].T)**2 /alp
-    #print('J:',J)
-    #print('myu',myu)
-    return J
-
+#分散の計算
 def calcDeviation(results,true_val):
     sum_theta = np.matrix(np.zeros((6,1)))
     for rst in results:
@@ -260,36 +171,24 @@ def calcDeviation(results,true_val):
         sum_theta = sum_theta + delta_theta
     sum_theta = sum_theta/len(results)
     rms_value = np.linalg.norm(sum_theta)
-    #rms_value = np.linalg.norm(sum_theta,2)
-        #print(sum_theta)
-        #print(np.linalg.norm(delta_theta,2)**2)
-    #print('sum_theta/resultsNum:',sum_theta/len(results))
-    #rms_value = np.sqrt(sum_theta/len(results))
-    #print(rms_value)
     return rms_value
 
+#RMS誤差の計算
 def calcRMSErr(results,true_val):
     sum_theta = 0.0
     for rst in results:
         p_theta = np.identity(6) - np.dot(true_val,true_val.T)
         delta_theta = np.dot(p_theta,rst)
         sum_theta = sum_theta + np.linalg.norm(delta_theta)**2
-        #print(delta_theta)
-        #print('norm',np.linalg.norm(delta_theta))
-
-        #sum_theta = sum_theta + np.linalg.norm(delta_theta,2)**2
-        #print(sum_theta)
-        #print(np.linalg.norm(delta_theta,2)**2)
-    #print('sum_theta/resultsNum:',sum_theta/len(results))
     rms_value = np.sqrt(sum_theta/len(results))
 
     testsum = 0.0
     for rst in results:
         testsum = testsum + np.linalg.norm(rst - true_val)
     print('norm distance:',testsum/len(results))
-    #print(rms_value)
     return rms_value
 
+#KCR下(理論上, それ以下の精度は出せないという値)の計算
 def KCR_lower_bound(data,stdv,data_num,myu):
 
     # Weight matrix.
@@ -305,11 +204,7 @@ def KCR_lower_bound(data,stdv,data_num,myu):
         alp = myu.T * covs[i] * myu
         weight[i, 0] = 1 / (alp)
 
-    #print('weight:',weight)
-
     M = createMMat(data, weight)
-    #M = np.linalg.inv(M)
-    #M = np.linalg.inv(M)
     lamda,v = np.linalg.eigh(M)
 
     sorted_lamda = sorted(lamda, reverse=True)
@@ -317,30 +212,13 @@ def KCR_lower_bound(data,stdv,data_num,myu):
     sorted_lamda = np.matrix(sorted_lamda[:5]).T
 
     sum_inv_ramda = 0.0
-    #sum_inv_ramda = sorted_lamda.sum()
     for i in range(sorted_lamda.shape[0]):
         sum_inv_ramda = sum_inv_ramda + (1.0/sorted_lamda[i])
-    #print('M:',M)
-    #print(createMMat(data, np.matrix(np.ones(data.shape[0])).T))
-    #sum_inv_ramda = 0.0
-    #for i in range(lamda.shape[0]):
-        #sum_inv_ramda = sum_inv_ramda + 1.0/lamda[i]
 
     Dkcr = stdv*np.sqrt(sum_inv_ramda) / np.sqrt(data.shape[0])
-    #array_info(lamda)
-    #inv_M = np.linalg.inv(M)
-    #print(inv_M)
-    #print(M*inv_M)
-    #diag_M = np.diag(inv_M).sum()
-    #print(diag_M)
-    #print(stdv/np.sqrt(data.shape[0]))
-    #print(M*true)
-    #la,v = np.linalg.eigh(M)
-    #print(la.sum())
-    #Dkcr = ( stdv/np.sqrt(data_num) )*np.sqrt(diag_M)
-    #Dkcr = ( stdv/np.sqrt(data.shape[0]) )*np.sqrt(diag_M)
     return Dkcr[0][0]
 
+#show 2D Ellipse image
 def plotData(myuLSM,myuFNS,trueVal,data):
     import sys
     from Ellipse import generateVecFromEllipse
@@ -396,9 +274,6 @@ def calcLSMandMSE(data,trialNum ,stdv_val,trueAns):
         LSM_results.append(myuLSM)
         FNS_results.append(myuFNS)
 
-    #Plot last answer figure of Ellipse
-    #plotData(myuLSM,myuFNS,trueAns,dataNoised)
-
     LSM_dev = calcDeviation(LSM_results,np.matrix(trueAns).T)
     FNS_dev = calcDeviation(FNS_results,np.matrix(trueAns).T)
     LSM_err = calcRMSErr(LSM_results,np.matrix(trueAns).T)
@@ -418,6 +293,8 @@ def calcLSMandMSE(data,trialNum ,stdv_val,trueAns):
 
     return LSM_dev ,FNS_dev,LSM_err,FNS_err,kcr
 
+#LSMとMSEを繰り返し計算し, その誤差平均値などを求める.
+#実質main関数
 def calcRepLSMandMSE():
     #read data of points including error value
     data = np.loadtxt('points.dat',comments='!')
@@ -426,7 +303,7 @@ def calcRepLSMandMSE():
     #init value
     trialNum = 1000
     #List of standard deviation
-    stdvList = np.arange(0.0, 0.101, 0.005, dtype = 'float64')
+    stdvList = np.arange(0.0, 0.121, 0.005, dtype = 'float64')
     #Make list of SD List and RMS list
     LSM_dev_List = np.array(np.zeros(stdvList.shape))
     MSE_dev_List = np.array(np.zeros(stdvList.shape))
@@ -464,12 +341,11 @@ def calcRepLSMandMSE():
     plt.legend()
     plt.savefig('RMS.png')
 
-
-
-
 if __name__ == "__main__":
 
     calcRepLSMandMSE()
+
+    '''
     #read data of points including error value
     data = np.loadtxt('points.dat',comments='!')
     #read data of true value
@@ -528,9 +404,4 @@ if __name__ == "__main__":
     print('真値とLSM_uの偏差:',LSM_dev)
     print('真値とFNS_uの偏差:',FNS_dev)
     print('KCR誤差',kcr)
-
-
-    #x = range(4, 4, 100)
-    #print('x',x)
-    #for i in x:
-        #i = i * 0.1
+    '''
